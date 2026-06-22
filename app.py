@@ -42,6 +42,9 @@ def get_india_boundary():
 india_boundary = get_india_boundary()
 
 m = folium.Map(location=[20.5, 78.9], zoom_start=5, min_zoom=4, max_zoom=8)
+
+# Force the map view to fit India's bounding box, in case auto-centering fails
+m.fit_bounds([[8, 68], [37, 97]])
 heat_data = filtered[['latitude', 'longitude', 'aqi']].values.tolist()
 HeatMap(heat_data, radius=15, blur=12,
         gradient={'0.2':'blue','0.4':'lime','0.6':'yellow','0.8':'orange','1.0':'red'}).add_to(m)
