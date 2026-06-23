@@ -5,3 +5,5 @@ streamlit-folium
 matplotlib
 requests
 numpy
+plotly
+kaleido
