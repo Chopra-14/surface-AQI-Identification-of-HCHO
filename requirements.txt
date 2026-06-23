@@ -8,3 +8,5 @@ numpy
 plotly
 kaleido
 scipy
+geopandas
+shapely
