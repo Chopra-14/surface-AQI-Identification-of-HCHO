@@ -171,22 +171,28 @@ st.caption("Satellite Pollution Index (SPI) — continuous surface interpolated 
 if len(filtered) > 0:
     fig = go.Figure()
 
+    # Use the actual data range (5th-95th percentile) instead of a fixed 0-500,
+    # so the gradient actually shows variation across India instead of saturating to dark red
+    z_min = filtered['aqi'].quantile(0.05)
+    z_max = filtered['aqi'].quantile(0.95)
+
     fig.add_trace(go.Densitymap(
         lat=filtered['latitude'],
         lon=filtered['longitude'],
         z=filtered['aqi'],
-        radius=35,
+        radius=22,
         colorscale=[
-            [0.0, '#2166ac'],
-            [0.2, '#67a9cf'],
-            [0.4, '#ffffbf'],
-            [0.6, '#fdae61'],
-            [0.8, '#e31a1c'],
-            [1.0, '#7f0000']
+            [0.0, '#1a4f8a'],
+            [0.15, '#3f8fd1'],
+            [0.35, '#8ec7e8'],
+            [0.5, '#fff7bc'],
+            [0.65, '#fec44f'],
+            [0.8, '#e6550d'],
+            [1.0, '#a50f15']
         ],
-        zmin=0,
-        zmax=500,
-        opacity=0.75,
+        zmin=z_min,
+        zmax=z_max,
+        opacity=0.8,
         showscale=True,
         colorbar=dict(title="SPI", thickness=15, len=0.7),
         hovertemplate="SPI: %{z:.0f}<extra></extra>"
