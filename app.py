@@ -1,79 +1,130 @@
+"""
+UPDATED MAP + HOTSPOT SECTION for app.py
+Replace your existing Folium heatmap section with this code block.
+Professional continuous-gradient look, matching reference design.
+"""
+
 import streamlit as st
 import pandas as pd
-import folium
-from folium.plugins import HeatMap
-from streamlit_folium import st_folium
-import requests
+import plotly.graph_objects as go
 
-st.set_page_config(page_title="India Satellite Pollution Index Monitor", layout="wide")
+# ============================================
+# Pollution Heatmap — Continuous Gradient
+# ============================================
 
-st.title("🛰️ India Air Quality Monitor")
-st.caption("Satellite-Powered Air Quality Intelligence — Bharatiya Antariksh Hackathon 2026")
-st.caption("⚠️ AQI shown is a Satellite Pollution Index (0-500 scale), validated against CPCB ground stations (r=0.45). Not an official CPCB AQI value.")
+st.subheader("📍 Pollution Heatmap of India")
+st.caption("Satellite Pollution Index (SPI) — continuous surface interpolated from 2,993 sample points")
 
-# Load data
 df = pd.read_csv('india_aqi_final.csv')
 hotspots = pd.read_csv('hotspots_summary.csv')
 
-# Sidebar filters
-st.sidebar.header("Filters")
-category_filter = st.sidebar.multiselect(
-    "AQI Category",
-    df['category'].unique().tolist(),
-    default=df['category'].unique().tolist()
+fig = go.Figure()
+
+# Smooth gradient density layer
+fig.add_trace(go.Densitymap(
+    lat=df['latitude'],
+    lon=df['longitude'],
+    z=df['aqi'],
+    radius=35,
+    colorscale=[
+        [0.0, '#2166ac'],
+        [0.2, '#67a9cf'],
+        [0.4, '#ffffbf'],
+        [0.6, '#fdae61'],
+        [0.8, '#e31a1c'],
+        [1.0, '#7f0000']
+    ],
+    zmin=0,
+    zmax=500,
+    opacity=0.75,
+    showscale=True,
+    colorbar=dict(title="SPI", thickness=15, len=0.7),
+    hovertemplate="SPI: %{z:.0f}<extra></extra>"
+))
+
+# Numbered hotspot markers
+for idx, row in hotspots.iterrows():
+    fig.add_trace(go.Scattermap(
+        lat=[row['lat']], lon=[row['lon']],
+        mode='markers',
+        marker=dict(size=34, color='#d62728', opacity=0.45),
+        showlegend=False, hoverinfo='skip'
+    ))
+    fig.add_trace(go.Scattermap(
+        lat=[row['lat']], lon=[row['lon']],
+        mode='markers+text',
+        marker=dict(size=26, color='white', opacity=0.95),
+        text=[str(idx + 1)],
+        textfont=dict(size=14, color='#1a1a2e'),
+        hovertemplate=f"<b>{row['region_name']}</b><br>Avg SPI: {row['avg_aqi']:.0f}<br>Max SPI: {row['max_aqi']:.0f}<extra></extra>",
+        showlegend=False
+    ))
+
+fig.update_layout(
+    map=dict(
+        style="carto-positron",
+        center=dict(lat=22.5, lon=80.5),
+        zoom=3.8
+    ),
+    margin=dict(l=0, r=0, t=0, b=0),
+    height=550,
+    showlegend=False
 )
-filtered = df[df['category'].isin(category_filter)]
 
-# Top metrics
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Average AQI (India)", f"{df['aqi'].mean():.0f}")
-col2.metric("Worst AQI Recorded", f"{df['aqi'].max():.0f}")
-col3.metric("Hotspot Zones Found", len(hotspots))
-col4.metric("Points Analyzed", len(df))
+st.plotly_chart(fig, use_container_width=True)
 
-# Map section
-st.subheader("📍 Pollution Heatmap of India")
-
-@st.cache_data
-def get_india_boundary():
-    url = "https://raw.githubusercontent.com/geohacker/india/master/state/india_telengana.geojson"
-    return requests.get(url).json()
-
-india_boundary = get_india_boundary()
-
-m = folium.Map(location=[20.5, 78.9], zoom_start=5, min_zoom=4, max_zoom=8)
-
-# Force the map view to fit India's bounding box, in case auto-centering fails
-m.fit_bounds([[8, 68], [37, 97]])
-heat_data = filtered[['latitude', 'longitude', 'aqi']].values.tolist()
-HeatMap(heat_data, radius=15, blur=12,
-        gradient={'0.2':'blue','0.4':'lime','0.6':'yellow','0.8':'orange','1.0':'red'}).add_to(m)
-
-folium.GeoJson(
-    india_boundary,
-    style_function=lambda x: {'fillColor': 'transparent', 'color': 'black', 'weight': 1.5}
-).add_to(m)
-
-for _, row in hotspots.iterrows():
-    folium.Marker(
-        location=[row['lat'], row['lon']],
-        popup=f"<b>{row['region_name']}</b><br>Avg AQI: {row['avg_aqi']:.0f}<br>Max AQI: {row['max_aqi']:.0f}",
-        tooltip=f"{row['region_name']} — Hotspot",
-        icon=folium.Icon(color='red', icon='exclamation-sign')
-    ).add_to(m)
-
-st_folium(m, width=1200, height=500)
-
-# Hotspot table
-st.subheader("🔥 Detected Pollution Hotspots")
-st.dataframe(hotspots[['region_name','avg_aqi','max_aqi','point_count']].rename(
-    columns={'region_name':'Region','avg_aqi':'Avg AQI','max_aqi':'Max AQI','point_count':'Data Points'}
-), use_container_width=True)
-
-# CPCB validation chart
-st.subheader("✅ Validation: Satellite vs CPCB Ground Truth")
-st.image('comparison_chart_final.png', use_container_width=True)
-st.caption("Our satellite pollution index shows moderate positive correlation (r=0.45) with CPCB ground station readings across 10 major Indian cities.")
+# ============================================
+# Hotspot Cards — Clean Grid Layout
+# ============================================
 
 st.markdown("---")
-st.caption("Built for Bharatiya Antariksh Hackathon 2026 | Data: Sentinel-5P TROPOMI, CPCB")
+st.subheader("🔥 Detected Pollution Hotspots — Details")
+
+st.markdown("""
+<style>
+.hotspot-card {
+    background: white;
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    border-left: 4px solid #e31a1c;
+    margin-bottom: 12px;
+}
+.hotspot-num {
+    background: #1a1a2e;
+    color: white;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 14px;
+    margin-right: 10px;
+}
+.hotspot-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1a2e;
+}
+.hotspot-stat {
+    color: #555;
+    font-size: 13px;
+    margin-top: 4px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+cols = st.columns(3)
+for idx, row in hotspots.iterrows():
+    with cols[idx % 3]:
+        severity_color = "#7f0000" if row['avg_aqi'] > 220 else "#e31a1c" if row['avg_aqi'] > 150 else "#fdae61"
+        st.markdown(f"""
+        <div class="hotspot-card" style="border-left-color:{severity_color}">
+            <span class="hotspot-num">{idx+1}</span>
+            <span class="hotspot-title">{row['region_name']}</span>
+            <div class="hotspot-stat">Avg SPI: <b>{row['avg_aqi']:.0f}</b> &nbsp;|&nbsp; Max SPI: <b>{row['max_aqi']:.0f}</b></div>
+            <div class="hotspot-stat">{int(row['point_count'])} satellite data points</div>
+        </div>
+        """, unsafe_allow_html=True)
