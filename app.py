@@ -169,62 +169,63 @@ st.markdown('<p class="section-header">📍 Pollution Heatmap of India</p>', uns
 st.caption("Satellite Pollution Index (SPI) — continuous surface interpolated from filtered sample points")
 
 if len(filtered) > 0:
-    fig = go.Figure()
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    from scipy.interpolate import griddata
+    from scipy.ndimage import gaussian_filter
+    import geopandas as gpd
+    import shapely
+    from shapely.ops import unary_union
 
-    # Use the actual data range so the gradient shows real variation
-    z_min = filtered['aqi'].quantile(0.05)
-    z_max = filtered['aqi'].quantile(0.95)
+    @st.cache_data
+    def get_india_geometry():
+        gdf = gpd.read_file('india_boundary_simplified.geojson')
+        return gdf, unary_union(gdf.geometry)
 
-    fig.add_trace(go.Densitymap(
-        lat=filtered['latitude'],
-        lon=filtered['longitude'],
-        z=filtered['aqi'],
-        radius=40,
-        colorscale=[
-            [0.0, '#2166ac'],
-            [0.25, '#92c5de'],
-            [0.45, '#f7f7f7'],
-            [0.6, '#fdb863'],
-            [0.8, '#e08214'],
-            [1.0, '#7f3b08']
-        ],
-        zmin=z_min,
-        zmax=z_max,
-        opacity=0.72,
-        showscale=True,
-        colorbar=dict(title="SPI", thickness=15, len=0.7),
-        hovertemplate="SPI: %{z:.0f}<extra></extra>"
-    ))
+    india_gdf, india_shape = get_india_geometry()
 
-    for idx, row in hotspots.iterrows():
-        fig.add_trace(go.Scattermap(
-            lat=[row['lat']], lon=[row['lon']],
-            mode='markers',
-            marker=dict(size=34, color='#d62728', opacity=0.45),
-            showlegend=False, hoverinfo='skip'
-        ))
-        fig.add_trace(go.Scattermap(
-            lat=[row['lat']], lon=[row['lon']],
-            mode='markers+text',
-            marker=dict(size=26, color='white', opacity=0.95),
-            text=[str(idx + 1)],
-            textfont=dict(size=14, color='#1a1a2e'),
-            hovertemplate=f"<b>{row['region_name']}</b><br>Avg SPI: {row['avg_aqi']:.0f}<br>Max SPI: {row['max_aqi']:.0f}<extra></extra>",
-            showlegend=False
-        ))
+    @st.cache_data
+    def build_heatmap_grid(lat_vals, lon_vals, aqi_vals):
+        grid_lon = np.linspace(68, 97, 250)
+        grid_lat = np.linspace(8, 37, 250)
+        gx, gy = np.meshgrid(grid_lon, grid_lat)
+        gz = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='linear')
+        gz = gaussian_filter(np.nan_to_num(gz, nan=np.nanmean(gz)), sigma=2)
+        mask = shapely.contains_xy(india_shape, gx, gy)
+        gz_masked = np.where(mask, gz, np.nan)
+        return gx, gy, gz_masked
 
-    fig.update_layout(
-        map=dict(
-            style="carto-positron",
-            center=dict(lat=22.5, lon=80.5),
-            zoom=3.8
-        ),
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=550,
-        showlegend=False
+    grid_x, grid_y, grid_z = build_heatmap_grid(
+        filtered['latitude'].values, filtered['longitude'].values, filtered['aqi'].values
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    colors_list = ['#1a4d8f', '#4393c3', '#92c5de', '#d1e5f0', '#fddbc7', '#f4a582', '#d6604d', '#b2182b', '#67001f']
+    cmap = mcolors.LinearSegmentedColormap.from_list('pollution', colors_list)
+
+    fig, ax = plt.subplots(figsize=(9, 9))
+    vmin = np.nanpercentile(grid_z, 5)
+    vmax = np.nanpercentile(grid_z, 95)
+
+    im = ax.contourf(grid_x, grid_y, grid_z, levels=20, cmap=cmap, vmin=vmin, vmax=vmax, extend='both')
+    india_gdf.boundary.plot(ax=ax, color='#444444', linewidth=0.6)
+    plt.colorbar(im, ax=ax, label='Satellite Pollution Index (SPI)', shrink=0.75, pad=0.02)
+
+    for idx, row in hotspots.iterrows():
+        ax.plot(row['lon'], row['lat'], 'o', markersize=24, markerfacecolor='white',
+                markeredgecolor='#1a1a2e', markeredgewidth=2.2, zorder=5)
+        ax.annotate(str(idx + 1), (row['lon'], row['lat']), ha='center', va='center',
+                    fontsize=12, fontweight='bold', color='#1a1a2e', zorder=6)
+
+    ax.set_xlim(67.5, 97.5)
+    ax.set_ylim(7.5, 37.5)
+    ax.set_title('Satellite Pollution Index — India (2024 Annual Average)', fontsize=13, fontweight='bold', pad=12)
+    ax.set_xlabel('Longitude', fontsize=10)
+    ax.set_ylabel('Latitude', fontsize=10)
+    ax.set_aspect('equal')
+    ax.set_facecolor('#f7f9fb')
+    plt.tight_layout()
+
+    st.pyplot(fig)
 else:
     st.warning("No data points match the selected filters. Try selecting at least one category.")
 
