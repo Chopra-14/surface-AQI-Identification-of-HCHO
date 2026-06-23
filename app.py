@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
 
 # ============================================
 # PAGE CONFIG
@@ -270,18 +269,48 @@ base = df['aqi'].mean()
 seasonal_factor = [1.3, 1.2, 1.0, 0.85, 0.8, 0.75, 0.7, 0.75, 0.85, 1.4, 1.6, 1.35]
 monthly_spi = [round(base * f + np.random.normal(0, 5), 1) for f in seasonal_factor]
 
-fig2, ax = plt.subplots(figsize=(10, 4))
-ax.plot(months, monthly_spi, marker='o', color='#e8743b', linewidth=2.2)
-ax.fill_between(months, monthly_spi, alpha=0.15, color='#e8743b')
-ax.set_ylabel('Average SPI')
-ax.set_title('Monthly Pollution Trend — India (Illustrative)', fontsize=12, fontweight='bold')
-ax.grid(alpha=0.25)
-ax.axvspan(9, 11, color='red', alpha=0.08)
-ax.text(9.15, max(monthly_spi) * 0.95, 'Crop Burning\nSeason', fontsize=9, color='darkred')
-ax.spines['top'].set_visible(False)
-ax.spines['right'].set_visible(False)
-plt.tight_layout()
-st.pyplot(fig2)
+def spi_category(v):
+    if v <= 50: return 'Good'
+    elif v <= 100: return 'Moderate'
+    elif v <= 200: return 'Unhealthy'
+    elif v <= 300: return 'Very Unhealthy'
+    else: return 'Hazardous'
+
+monthly_cat = [spi_category(v) for v in monthly_spi]
+
+fig2 = go.Figure()
+
+fig2.add_vrect(
+    x0=8.5, x1=11.5,
+    fillcolor="red", opacity=0.08, line_width=0,
+    annotation_text="Crop Burning Season", annotation_position="top",
+    annotation_font=dict(color="darkred", size=11)
+)
+
+fig2.add_trace(go.Scatter(
+    x=months,
+    y=monthly_spi,
+    mode='lines+markers',
+    line=dict(color='#e8743b', width=3),
+    marker=dict(size=9, color='#e8743b', line=dict(width=1.5, color='white')),
+    fill='tozeroy',
+    fillcolor='rgba(232,116,59,0.12)',
+    customdata=monthly_cat,
+    hovertemplate="<b>%{x}</b><br>SPI: %{y}<br>Category: %{customdata}<extra></extra>"
+))
+
+fig2.update_layout(
+    title=dict(text="Monthly Pollution Trend — India (Illustrative)", font=dict(size=15)),
+    yaxis_title="Average SPI",
+    height=400,
+    margin=dict(l=10, r=10, t=50, b=10),
+    plot_bgcolor='white',
+    hovermode='x unified',
+    yaxis=dict(gridcolor='#eee', zeroline=False),
+    xaxis=dict(gridcolor='#fff')
+)
+
+st.plotly_chart(fig2, use_container_width=True)
 
 # ============================================
 # CPCB VALIDATION CHART
