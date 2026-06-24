@@ -199,15 +199,16 @@ if len(filtered) > 0:
         filtered['latitude'].values, filtered['longitude'].values, filtered['aqi'].values
     )
 
-    colors_list = ['#1a4d8f', '#4393c3', '#92c5de', '#d1e5f0', '#fddbc7', '#f4a582', '#d6604d', '#b2182b', '#67001f']
-    cmap = mcolors.LinearSegmentedColormap.from_list('pollution', colors_list)
+    colors_list = ['#0d47a1', '#1976d2', '#42a5f5', '#90caf9', '#fff9c4',
+                   '#ffd54f', '#ff9800', '#f4511e', '#c62828', '#6a1b1a']
+    cmap = mcolors.LinearSegmentedColormap.from_list('sunset', colors_list)
 
     fig, ax = plt.subplots(figsize=(9, 9))
     vmin = np.nanpercentile(grid_z, 5)
     vmax = np.nanpercentile(grid_z, 95)
 
-    im = ax.contourf(grid_x, grid_y, grid_z, levels=20, cmap=cmap, vmin=vmin, vmax=vmax, extend='both')
-    india_gdf.boundary.plot(ax=ax, color='#444444', linewidth=0.6)
+    im = ax.contourf(grid_x, grid_y, grid_z, levels=22, cmap=cmap, vmin=vmin, vmax=vmax, extend='both')
+    india_gdf.boundary.plot(ax=ax, color='#3a3a3a', linewidth=0.6)
     plt.colorbar(im, ax=ax, label='Satellite Pollution Index (SPI)', shrink=0.75, pad=0.02)
 
     for idx, row in hotspots.iterrows():
