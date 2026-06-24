@@ -200,8 +200,8 @@ if len(filtered) > 0:
     )
 
     colors_list = ['#1a9850', '#66bd63', '#a6d96a', '#d9ef8b', '#fee08b',
-                   '#fdae61', '#f46d43', '#d73027', '#a50026', '#660014']
-    cmap = mcolors.LinearSegmentedColormap.from_list('traffic_light', colors_list)
+                   '#fdae61', '#f46d43', '#ef3b2c', '#cb181d', '#99000d']
+    cmap = mcolors.LinearSegmentedColormap.from_list('traffic_light_crimson', colors_list)
 
     fig, ax = plt.subplots(figsize=(9, 9))
     vmin = np.nanpercentile(grid_z, 5)
