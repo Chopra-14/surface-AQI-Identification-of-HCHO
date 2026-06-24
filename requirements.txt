@@ -1,12 +1,22 @@
+# streamlit
+# pandas
+# folium
+# streamlit-folium
+# matplotlib
+# requests
+# numpy
+# plotly
+# kaleido
+# scipy
+# geopandas
+# shapely
+
+
 streamlit
 pandas
-folium
-streamlit-folium
-matplotlib
-requests
 numpy
 plotly
-kaleido
-scipy
+matplotlib
 geopandas
 shapely
+scipy

@@ -176,6 +176,9 @@ if len(filtered) > 0:
     import geopandas as gpd
     import shapely
     from shapely.ops import unary_union
+    import base64
+    from io import BytesIO
+    from plotly.subplots import make_subplots
 
     @st.cache_data
     def get_india_geometry():
@@ -185,7 +188,7 @@ if len(filtered) > 0:
     india_gdf, india_shape = get_india_geometry()
 
     @st.cache_data
-    def build_heatmap_grid(lat_vals, lon_vals, aqi_vals):
+    def build_heatmap_image(lat_vals, lon_vals, aqi_vals):
         grid_lon = np.linspace(68, 97, 250)
         grid_lat = np.linspace(8, 37, 250)
         gx, gy = np.meshgrid(grid_lon, grid_lat)
@@ -193,40 +196,141 @@ if len(filtered) > 0:
         gz = gaussian_filter(np.nan_to_num(gz, nan=np.nanmean(gz)), sigma=2)
         mask = shapely.contains_xy(india_shape, gx, gy)
         gz_masked = np.where(mask, gz, np.nan)
-        return gx, gy, gz_masked
 
-    grid_x, grid_y, grid_z = build_heatmap_grid(
+        colors_list = ['#1a9850', '#66bd63', '#a6d96a', '#d9ef8b', '#fee08b',
+                       '#fdae61', '#f46d43', '#ef3b2c', '#cb181d', '#99000d']
+        cmap = mcolors.LinearSegmentedColormap.from_list('traffic_light_crimson', colors_list)
+
+        vmin = np.nanpercentile(gz_masked, 5)
+        vmax = np.nanpercentile(gz_masked, 95)
+
+        fig_bg, ax = plt.subplots(figsize=(9, 9))
+        im = ax.contourf(gx, gy, gz_masked, levels=22, cmap=cmap, vmin=vmin, vmax=vmax, extend='both')
+        india_gdf.boundary.plot(ax=ax, color='#333333', linewidth=0.6)
+        ax.set_xlim(67.5, 97.5)
+        ax.set_ylim(7.5, 37.5)
+        ax.set_aspect('equal')
+        ax.axis('off')
+        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
+        buf = BytesIO()
+        plt.savefig(buf, format='png', dpi=130, transparent=True)
+        plt.close(fig_bg)
+        buf.seek(0)
+        img_b64 = base64.b64encode(buf.read()).decode()
+
+        # Separate colorbar figure
+        fig_cb, ax_cb = plt.subplots(figsize=(1.2, 7))
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=ax_cb)
+        cb.set_label('Satellite Pollution Index (SPI)', fontsize=10)
+        plt.tight_layout()
+        buf2 = BytesIO()
+        plt.savefig(buf2, format='png', dpi=130, transparent=True)
+        plt.close(fig_cb)
+        buf2.seek(0)
+        cb_b64 = base64.b64encode(buf2.read()).decode()
+
+        return img_b64, cb_b64
+
+    img_b64, cb_b64 = build_heatmap_image(
         filtered['latitude'].values, filtered['longitude'].values, filtered['aqi'].values
     )
 
-    colors_list = ['#1a9850', '#66bd63', '#a6d96a', '#d9ef8b', '#fee08b',
-                   '#fdae61', '#f46d43', '#ef3b2c', '#cb181d', '#99000d']
-    cmap = mcolors.LinearSegmentedColormap.from_list('traffic_light_crimson', colors_list)
+    map_col, cb_col = st.columns([9, 1])
 
-    fig, ax = plt.subplots(figsize=(9, 9))
-    vmin = np.nanpercentile(grid_z, 5)
-    vmax = np.nanpercentile(grid_z, 95)
+    with map_col:
+        fig = go.Figure()
+        fig.add_layout_image(dict(
+            source=f'data:image/png;base64,{img_b64}',
+            xref="x", yref="y",
+            x=67.5, y=37.5, sizex=29.5, sizey=29.5,
+            sizing="stretch", opacity=1, layer="below"
+        ))
 
-    im = ax.contourf(grid_x, grid_y, grid_z, levels=22, cmap=cmap, vmin=vmin, vmax=vmax, extend='both')
-    india_gdf.boundary.plot(ax=ax, color='#333333', linewidth=0.6)
-    plt.colorbar(im, ax=ax, label='Satellite Pollution Index (SPI)', shrink=0.75, pad=0.02)
+        for idx, row in hotspots.iterrows():
+            fig.add_trace(go.Scatter(
+                x=[row['lon']], y=[row['lat']],
+                mode='markers',
+                marker=dict(size=20, color='#1a1a2e', symbol='triangle-up',
+                            line=dict(width=1.5, color='white')),
+                customdata=[[row['region_name'], row['avg_aqi'], row['max_aqi'], row['point_count']]],
+                hovertemplate="<b>📍 %{customdata[0]}</b><br>Avg SPI: %{customdata[1]:.0f}<br>Max SPI: %{customdata[2]:.0f}<br>Data points: %{customdata[3]}<extra></extra>",
+                showlegend=False
+            ))
 
-    for idx, row in hotspots.iterrows():
-        ax.plot(row['lon'], row['lat'], 'o', markersize=24, markerfacecolor='white',
-                markeredgecolor='#1a1a2e', markeredgewidth=2.2, zorder=5)
-        ax.annotate(str(idx + 1), (row['lon'], row['lat']), ha='center', va='center',
-                    fontsize=12, fontweight='bold', color='#1a1a2e', zorder=6)
+        fig.update_xaxes(visible=False, range=[67.5, 97.5])
+        fig.update_yaxes(visible=False, range=[7.5, 37.5], scaleanchor='x', scaleratio=1)
+        fig.update_layout(
+            height=620, margin=dict(l=0, r=0, t=0, b=0),
+            plot_bgcolor='white', paper_bgcolor='white'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("📍 Hover over a marker to see its stats. Select a hotspot below for a detailed breakdown.")
 
-    ax.set_xlim(67.5, 97.5)
-    ax.set_ylim(7.5, 37.5)
-    ax.set_title('Satellite Pollution Index — India (2024 Annual Average)', fontsize=13, fontweight='bold', pad=12)
-    ax.set_xlabel('Longitude', fontsize=10)
-    ax.set_ylabel('Latitude', fontsize=10)
-    ax.set_aspect('equal')
-    ax.set_facecolor('#f7f9fb')
-    plt.tight_layout()
+    with cb_col:
+        st.markdown("<br>" * 2, unsafe_allow_html=True)
+        st.image(f'data:image/png;base64,{cb_b64}', use_container_width=True)
 
-    st.pyplot(fig)
+    # ============================================
+    # Hotspot Detail Selector + 4-Panel Charts
+    # ============================================
+    st.markdown("<br>", unsafe_allow_html=True)
+    selected_region = st.selectbox(
+        "🔍 Select a hotspot to view its detailed breakdown",
+        hotspots['region_name'].tolist()
+    )
+
+    sel_row = hotspots[hotspots['region_name'] == selected_region].iloc[0]
+    national_avg = df['aqi'].mean()
+
+    detail_fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=(
+            "Avg SPI: This Region vs National Average",
+            "This Region: Average vs Peak SPI",
+            "Sample Size vs Other Hotspots",
+            "National Seasonal Pattern (Illustrative)"
+        ),
+        specs=[[{"type": "bar"}, {"type": "bar"}], [{"type": "bar"}, {"type": "scatter"}]],
+        vertical_spacing=0.18, horizontal_spacing=0.1
+    )
+
+    detail_fig.add_trace(go.Bar(
+        x=['This Region', 'India Average'], y=[sel_row['avg_aqi'], national_avg],
+        marker_color=['#cb181d', '#66bd63'], showlegend=False,
+        text=[f"{sel_row['avg_aqi']:.0f}", f"{national_avg:.0f}"], textposition='outside'
+    ), row=1, col=1)
+
+    detail_fig.add_trace(go.Bar(
+        x=['Average', 'Peak (Max)'], y=[sel_row['avg_aqi'], sel_row['max_aqi']],
+        marker_color=['#fdae61', '#99000d'], showlegend=False,
+        text=[f"{sel_row['avg_aqi']:.0f}", f"{sel_row['max_aqi']:.0f}"], textposition='outside'
+    ), row=1, col=2)
+
+    bar_colors = ['#1a1a2e' if r == selected_region else '#cbd5e1' for r in hotspots['region_name']]
+    detail_fig.add_trace(go.Bar(
+        x=hotspots['region_name'], y=hotspots['point_count'],
+        marker_color=bar_colors, showlegend=False
+    ), row=2, col=1)
+
+    months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    seasonal_factor = [1.3, 1.2, 1.0, 0.85, 0.8, 0.75, 0.7, 0.75, 0.85, 1.4, 1.6, 1.35]
+    monthly_vals = [national_avg * f for f in seasonal_factor]
+    detail_fig.add_trace(go.Scatter(
+        x=months, y=monthly_vals, mode='lines+markers',
+        line=dict(color='#e8743b', width=2.5), showlegend=False
+    ), row=2, col=2)
+
+    detail_fig.update_layout(
+        height=620,
+        title_text=f"📊 Detailed Breakdown — {selected_region}",
+        title_font_size=18,
+        showlegend=False,
+        margin=dict(t=80)
+    )
+    st.plotly_chart(detail_fig, use_container_width=True)
+    st.caption("⚠️ The seasonal panel reuses the national illustrative pattern — region-specific monthly data was not collected in this version.")
 else:
     st.warning("No data points match the selected filters. Try selecting at least one category.")
 
