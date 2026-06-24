@@ -109,6 +109,13 @@ def load_data():
 
 df, hotspots = load_data()
 
+# Normalize column names to ensure consistency
+df.columns = [c.strip().lower() for c in df.columns]
+hotspots.columns = [c.strip().lower() for c in hotspots.columns]
+
+# Ensure hotspots has 'lat'/'lon' (already correct per debug)
+# Ensure df has 'latitude'/'longitude'/'aqi' (already correct per debug)
+
 # ============================================
 # DEBUG — Remove after fixing
 # ============================================
@@ -198,21 +205,37 @@ if len(filtered) > 0:
         grid_lon = np.linspace(68, 97, 300)
         grid_lat = np.linspace(8, 37, 300)
         gx, gy = np.meshgrid(grid_lon, grid_lat)
-        # cubic first for smoother surface
+
+        # Interpolate
         try:
             gz = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='cubic')
             gz_fill = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='linear')
             gz = np.where(np.isnan(gz), gz_fill, gz)
         except Exception:
             gz = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='linear')
+
         mean_val = float(np.nanmean(gz)) if not np.all(np.isnan(gz)) else 150.0
         gz = np.nan_to_num(gz, nan=mean_val)
         gz = gaussian_filter(gz, sigma=3)
+
+        # Mask outside India — try multiple shapely APIs
         try:
-            mask = shapely.contains_xy(_india_shape, gx, gy)
-            gz_masked = np.where(mask, gz, np.nan)
+            from shapely.vectorized import contains
+            mask = contains(_india_shape, gx.ravel(), gy.ravel()).reshape(gx.shape)
         except Exception:
-            gz_masked = gz
+            try:
+                mask = shapely.contains_xy(_india_shape, gx, gy)
+            except Exception:
+                try:
+                    from shapely.geometry import Point
+                    mask = np.array([
+                        _india_shape.contains(Point(float(gx.ravel()[i]), float(gy.ravel()[i])))
+                        for i in range(gx.size)
+                    ]).reshape(gx.shape)
+                except Exception:
+                    mask = np.ones(gx.shape, dtype=bool)
+
+        gz_masked = np.where(mask, gz, np.nan)
         return grid_lon, grid_lat, gz_masked
 
     grid_lon, grid_lat, gz_masked = build_heatmap_grid(
@@ -223,7 +246,7 @@ if len(filtered) > 0:
     )
 
     if np.all(np.isnan(gz_masked)):
-        st.warning("⚠️ Heatmap could not be generated — check latitude/longitude/aqi columns in india_aqi_final.csv")
+        st.warning("⚠️ Heatmap could not be generated.")
         st.stop()
 
     vmin = np.nanpercentile(gz_masked, 5)
