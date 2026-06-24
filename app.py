@@ -110,6 +110,22 @@ def load_data():
 df, hotspots = load_data()
 
 # ============================================
+# DEBUG — Remove after fixing
+# ============================================
+with st.expander("🔍 Debug Info (click to expand)", expanded=False):
+    st.write("**df columns:**", df.columns.tolist())
+    st.write("**df shape:**", df.shape)
+    st.write("**df head:**")
+    st.dataframe(df.head(3))
+    st.write("**hotspots columns:**", hotspots.columns.tolist())
+    st.write("**hotspots head:**")
+    st.dataframe(hotspots.head(3))
+    # Check for lat/lon/aqi
+    for col in ['latitude','longitude','aqi','lat','lon','Latitude','Longitude','AQI']:
+        if col in df.columns:
+            st.write(f"✅ Found column: `{col}` — sample values: {df[col].head(3).tolist()}")
+
+# ============================================
 # HEADER
 # ============================================
 st.markdown('<p class="main-title">🛰️ India Air Quality Monitor</p>', unsafe_allow_html=True)
