@@ -91,30 +91,39 @@ st.caption("Satellite Pollution Index (SPI) — density map from satellite data 
 if len(filtered) > 0:
     from streamlit_plotly_events import plotly_events
 
-    vmin = float(filtered['aqi'].quantile(0.05))
-    vmax = float(filtered['aqi'].quantile(0.95))
+    # ── Auto-detect lat/lon columns ──
+    lat_col = 'latitude' if 'latitude' in filtered.columns else 'lat'
+    lon_col = 'longitude' if 'longitude' in filtered.columns else 'lon'
+
+    lat_vals = filtered[lat_col].values.astype(float)
+    lon_vals = filtered[lon_col].values.astype(float)
+    aqi_vals = filtered['aqi'].values.astype(float)
+
+    # Auto-swap if lat/lon are reversed
+    if lat_vals.mean() > 50 or lat_vals.mean() < 0:
+        lat_vals, lon_vals = lon_vals, lat_vals
+
+    vmin = float(np.percentile(aqi_vals, 5))
+    vmax = float(np.percentile(aqi_vals, 95))
 
     map_fig = go.Figure()
 
-    # ── 1. Density heatmap using actual data points ──
     map_fig.add_trace(go.Densitymapbox(
-        lat=filtered['latitude'],
-        lon=filtered['longitude'],
-        z=filtered['aqi'],
-        radius=18,
+        lat=lat_vals,
+        lon=lon_vals,
+        z=aqi_vals,
+        radius=25,
         colorscale=COLORSCALE,
         zmin=vmin, zmax=vmax,
         colorbar=dict(
             title=dict(text='SPI', side='right'),
             thickness=15,
             tickfont=dict(size=10),
-            tickvals=[50, 100, 150, 200, 250, 300, 350],
-            ticktext=['50 Good','100 Mod','150','200 Bad','250','300 V.Bad','350 Haz'],
         ),
         showscale=True,
         hoverinfo='skip',
         name='heatmap',
-        opacity=0.8,
+        opacity=0.85,
     ))
 
     # ── 2. Pin colors by pollution level ──
