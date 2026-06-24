@@ -178,20 +178,37 @@ if len(filtered) > 0:
 
     india_gdf, india_shape = get_india_geometry()
 
-    @st.cache_data
-    def build_heatmap_grid(lat_vals, lon_vals, aqi_vals):
-        grid_lon = np.linspace(68, 97, 250)
-        grid_lat = np.linspace(8, 37, 250)
+    def build_heatmap_grid(lat_vals, lon_vals, aqi_vals, _india_shape):
+        grid_lon = np.linspace(68, 97, 300)
+        grid_lat = np.linspace(8, 37, 300)
         gx, gy = np.meshgrid(grid_lon, grid_lat)
-        gz = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='linear')
-        gz = gaussian_filter(np.nan_to_num(gz, nan=np.nanmean(gz)), sigma=2)
-        mask = shapely.contains_xy(india_shape, gx, gy)
-        gz_masked = np.where(mask, gz, np.nan)
+        # cubic first for smoother surface
+        try:
+            gz = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='cubic')
+            gz_fill = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='linear')
+            gz = np.where(np.isnan(gz), gz_fill, gz)
+        except Exception:
+            gz = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='linear')
+        mean_val = float(np.nanmean(gz)) if not np.all(np.isnan(gz)) else 150.0
+        gz = np.nan_to_num(gz, nan=mean_val)
+        gz = gaussian_filter(gz, sigma=3)
+        try:
+            mask = shapely.contains_xy(_india_shape, gx, gy)
+            gz_masked = np.where(mask, gz, np.nan)
+        except Exception:
+            gz_masked = gz
         return grid_lon, grid_lat, gz_masked
 
     grid_lon, grid_lat, gz_masked = build_heatmap_grid(
-        filtered['latitude'].values, filtered['longitude'].values, filtered['aqi'].values
+        filtered['latitude'].values,
+        filtered['longitude'].values,
+        filtered['aqi'].values,
+        india_shape
     )
+
+    if np.all(np.isnan(gz_masked)):
+        st.warning("⚠️ Heatmap could not be generated — check latitude/longitude/aqi columns in india_aqi_final.csv")
+        st.stop()
 
     vmin = np.nanpercentile(gz_masked, 5)
     vmax = np.nanpercentile(gz_masked, 95)
