@@ -169,14 +169,13 @@ st.markdown('<p class="section-header">📍 Pollution Heatmap of India</p>', uns
 st.caption("Satellite Pollution Index (SPI) — continuous surface interpolated from filtered sample points")
 
 if len(filtered) > 0:
-    import matplotlib.pyplot as plt
-    import matplotlib.colors as mcolors
     from scipy.interpolate import griddata
     from scipy.ndimage import gaussian_filter
     import geopandas as gpd
     import shapely
     from shapely.ops import unary_union
     from plotly.subplots import make_subplots
+    from streamlit_plotly_events import plotly_events
 
     @st.cache_data
     def get_india_geometry():
@@ -194,53 +193,87 @@ if len(filtered) > 0:
         gz = gaussian_filter(np.nan_to_num(gz, nan=np.nanmean(gz)), sigma=2)
         mask = shapely.contains_xy(india_shape, gx, gy)
         gz_masked = np.where(mask, gz, np.nan)
-        return gx, gy, gz_masked
+        return grid_lon, grid_lat, gz_masked
 
-    grid_x, grid_y, grid_z = build_heatmap_grid(
+    grid_lon, grid_lat, gz_masked = build_heatmap_grid(
         filtered['latitude'].values, filtered['longitude'].values, filtered['aqi'].values
     )
 
-    colors_list = ['#1a9850', '#66bd63', '#a6d96a', '#d9ef8b', '#fee08b',
-                   '#fdae61', '#f46d43', '#ef3b2c', '#cb181d', '#99000d']
-    cmap = mcolors.LinearSegmentedColormap.from_list('traffic_light_crimson', colors_list)
+    vmin = np.nanpercentile(gz_masked, 5)
+    vmax = np.nanpercentile(gz_masked, 95)
 
-    fig, ax = plt.subplots(figsize=(9, 9))
-    vmin = np.nanpercentile(grid_z, 5)
-    vmax = np.nanpercentile(grid_z, 95)
+    # Native Plotly contour - no embedded image, so no sizing/anchoring bugs possible
+    map_fig = go.Figure()
+    map_fig.add_trace(go.Contour(
+        x=grid_lon, y=grid_lat, z=gz_masked,
+        colorscale=[[0, '#1a9850'], [0.1, '#66bd63'], [0.2, '#a6d96a'], [0.3, '#d9ef8b'],
+                    [0.4, '#fee08b'], [0.5, '#fdae61'], [0.6, '#f46d43'], [0.75, '#ef3b2c'],
+                    [0.85, '#cb181d'], [1.0, '#99000d']],
+        contours=dict(coloring='fill', showlines=False),
+        line_smoothing=0.85,
+        colorbar=dict(title='SPI', thickness=15),
+        zmin=vmin, zmax=vmax,
+        hoverinfo='skip'
+    ))
 
-    im = ax.contourf(grid_x, grid_y, grid_z, levels=22, cmap=cmap, vmin=vmin, vmax=vmax, extend='both')
-    india_gdf.boundary.plot(ax=ax, color='#333333', linewidth=0.6)
-    plt.colorbar(im, ax=ax, label='Satellite Pollution Index (SPI)', shrink=0.75, pad=0.02)
+    # State border outlines drawn as native Plotly lines (extracted from the boundary geometry)
+    # Filter out tiny slivers from geometry simplification - keeps mainland + real islands only
+    for geom in india_gdf.geometry:
+        polys = [geom] if geom.geom_type == 'Polygon' else list(geom.geoms)
+        for poly in polys:
+            if poly.area < 0.01:
+                continue
+            x, y = poly.exterior.xy
+            map_fig.add_trace(go.Scatter(
+                x=list(x), y=list(y), mode='lines',
+                line=dict(color='#444444', width=0.7),
+                showlegend=False, hoverinfo='skip'
+            ))
 
-    for idx, row in hotspots.iterrows():
-        ax.plot(row['lon'], row['lat'], 'o', markersize=24, markerfacecolor='white',
-                markeredgecolor='#1a1a2e', markeredgewidth=2.2, zorder=5)
-        ax.annotate(str(idx + 1), (row['lon'], row['lat']), ha='center', va='center',
-                    fontsize=12, fontweight='bold', color='#1a1a2e', zorder=6)
+    # Clickable hotspot pins - this is the real click target
+    map_fig.add_trace(go.Scatter(
+        x=hotspots['lon'], y=hotspots['lat'],
+        mode='markers+text',
+        marker=dict(size=26, color='white', line=dict(width=2.5, color='#1a1a2e')),
+        text=[str(i + 1) for i in range(len(hotspots))],
+        textfont=dict(size=13, color='#1a1a2e', family='Arial Black'),
+        customdata=hotspots['region_name'],
+        name='hotspots',
+        showlegend=False
+    ))
 
-    ax.set_xlim(67.5, 97.5)
-    ax.set_ylim(7.5, 37.5)
-    ax.set_title('Satellite Pollution Index — India (2024 Annual Average)', fontsize=13, fontweight='bold', pad=12)
-    ax.set_xlabel('Longitude', fontsize=10)
-    ax.set_ylabel('Latitude', fontsize=10)
-    ax.set_aspect('equal')
-    ax.set_facecolor('#fafbfc')
-    plt.tight_layout()
-
-    st.pyplot(fig)
-    st.caption("📍 Numbered pins mark detected hotspots. Select one below for a detailed breakdown.")
-
-    # ============================================
-    # Hotspot Detail Selector + 4-Panel Charts
-    # ============================================
-    st.markdown("<br>", unsafe_allow_html=True)
-    selected_region = st.selectbox(
-        "🔍 Select a hotspot to view its detailed breakdown",
-        hotspots['region_name'].tolist()
+    map_fig.update_xaxes(range=[67.5, 97.5], visible=False)
+    map_fig.update_yaxes(range=[7.5, 37.5], scaleanchor='x', scaleratio=1, visible=False)
+    map_fig.update_layout(
+        height=600, margin=dict(l=10, r=10, t=10, b=10),
+        plot_bgcolor='white', paper_bgcolor='white'
     )
 
-    sel_row = hotspots[hotspots['region_name'] == selected_region].iloc[0]
+    st.caption("📍 Click any numbered pin to see its detailed breakdown below.")
+    clicked = plotly_events(map_fig, click_event=True, hover_event=False, override_height=600, key="hotspot_map")
+
+    # Determine which hotspot was clicked (match by clicked point's curve/trace, default to first if none yet)
+    if 'selected_hotspot_idx' not in st.session_state:
+        st.session_state.selected_hotspot_idx = 0
+
+    if clicked:
+        point = clicked[0]
+        # The hotspot trace is the last one added; match by closest coordinate as a robust fallback
+        clicked_x, clicked_y = point.get('x'), point.get('y')
+        if clicked_x is not None and clicked_y is not None:
+            distances = np.sqrt((hotspots['lon'] - clicked_x) ** 2 + (hotspots['lat'] - clicked_y) ** 2)
+            nearest_idx = distances.idxmin()
+            if distances[nearest_idx] < 1.5:  # only accept clicks reasonably close to an actual pin
+                st.session_state.selected_hotspot_idx = nearest_idx
+
+    selected_region = hotspots.iloc[st.session_state.selected_hotspot_idx]['region_name']
+    sel_row = hotspots.iloc[st.session_state.selected_hotspot_idx]
     national_avg = df['aqi'].mean()
+
+    # ============================================
+    # 4-Panel Detail Charts for the Clicked Hotspot
+    # ============================================
+    st.markdown("<br>", unsafe_allow_html=True)
 
     detail_fig = make_subplots(
         rows=2, cols=2,

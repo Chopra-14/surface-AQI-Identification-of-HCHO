@@ -16,7 +16,7 @@ streamlit
 pandas
 numpy
 plotly
-matplotlib
 geopandas
 shapely
 scipy
+streamlit-plotly-events
