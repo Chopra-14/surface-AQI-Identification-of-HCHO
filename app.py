@@ -241,18 +241,17 @@ if len(filtered) > 0:
                 showlegend=False, hoverinfo='skip'
             ))
 
-    # ── LOCATION PIN MARKERS (teardrop shape using symbol) ──
-    # Outer shadow pin (slightly bigger, dark)
+    # ── LOCATION PIN MARKERS (circle + triangle-down to simulate pin) ──
+    # Outer shadow (dark circle behind)
     map_fig.add_trace(go.Scatter(
         x=hotspots['lon'],
         y=hotspots['lat'],
         mode='markers',
         marker=dict(
-            symbol='pin',
-            size=28,
+            symbol='circle',
+            size=30,
             color='#1a1a2e',
-            line=dict(width=0, color='#1a1a2e'),
-            angle=0
+            line=dict(width=0)
         ),
         showlegend=False,
         hoverinfo='skip',
@@ -304,15 +303,14 @@ if len(filtered) > 0:
         y=hotspots['lat'],
         mode='markers+text',
         marker=dict(
-            symbol='pin',
+            symbol='circle',
             size=22,
             color=pin_colors,
-            line=dict(width=1.5, color='white'),
-            angle=0
+            line=dict(width=2.5, color='white'),
         ),
         text=[str(i + 1) for i in range(len(hotspots))],
         textposition='middle center',
-        textfont=dict(size=9, color='white', family='Arial Black'),
+        textfont=dict(size=10, color='white', family='Arial Black'),
         customdata=hotspots['region_name'],
         hovertext=hover_texts,
         hoverinfo='text',
