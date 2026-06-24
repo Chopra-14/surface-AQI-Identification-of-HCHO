@@ -181,6 +181,17 @@ for col, (label, value) in zip([col1, col2, col3, col4], metrics):
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ============================================
+# SHARED COLOR SCALE (used in heatmap + charts)
+# ============================================
+COLORSCALE = [
+    [0.00, '#006837'], [0.15, '#31a354'], [0.30, '#78c679'],
+    [0.42, '#c2e699'], [0.50, '#ffffb2'], [0.60, '#fecc5c'],
+    [0.70, '#fd8d3c'], [0.80, '#f03b20'], [0.88, '#9e0142'],
+    [1.00, '#5e0035'],
+]
+vmin, vmax = 50, 400  # default range, overridden inside if block
+
+# ============================================
 # POLLUTION HEATMAP — UPDATED COLORS + PIN ICONS
 # ============================================
 st.markdown('<p class="section-header">📍 Pollution Heatmap of India</p>', unsafe_allow_html=True)
@@ -254,37 +265,25 @@ if len(filtered) > 0:
 
     map_fig = go.Figure()
 
-    # ── UPDATED COLOR SCALE: teal → yellow → orange → purple (no red) ──
-    COLORSCALE = [
-        [0.00, '#006837'],   # deep green  — Good
-        [0.15, '#31a354'],   # green
-        [0.30, '#78c679'],   # light green
-        [0.42, '#c2e699'],   # pale green
-        [0.50, '#ffffb2'],   # yellow       — Moderate
-        [0.60, '#fecc5c'],   # amber
-        [0.70, '#fd8d3c'],   # orange       — Unhealthy
-        [0.80, '#f03b20'],   # orange-red
-        [0.88, '#9e0142'],   # deep magenta — Very Unhealthy
-        [1.00, '#5e0035'],   # dark purple  — Hazardous
-    ]
-
-    map_fig.add_trace(go.Contour(
-        x=grid_lon, y=grid_lat, z=gz_masked,
+    # ── HEATMAP using go.Heatmap (reliable, no NaN masking issues) ──
+    map_fig.add_trace(go.Heatmap(
+        x=grid_lon,
+        y=grid_lat,
+        z=gz_masked,
         colorscale=COLORSCALE,
-        contours=dict(coloring='fill', showlines=False),
-        line_smoothing=0.85,
+        zmin=vmin, zmax=vmax,
         colorbar=dict(
-            title='SPI',
+            title=dict(text='SPI', side='right'),
             thickness=15,
-            tickvals=[50, 100, 150, 200, 250, 300, 350],
-            ticktext=['50\nGood', '100\nMod', '150', '200\nUnhealthy', '250', '300\nV.Bad', '350\nHazard'],
             tickfont=dict(size=10)
         ),
-        zmin=vmin, zmax=vmax,
-        hoverinfo='skip'
+        hoverinfo='skip',
+        zsmooth='best',
+        showscale=True,
+        opacity=0.85
     ))
 
-    # State borders
+    # State border outlines
     for geom in india_gdf.geometry:
         polys = [geom] if geom.geom_type == 'Polygon' else list(geom.geoms)
         for poly in polys:
@@ -293,92 +292,9 @@ if len(filtered) > 0:
             x, y = poly.exterior.xy
             map_fig.add_trace(go.Scatter(
                 x=list(x), y=list(y), mode='lines',
-                line=dict(color='#333333', width=0.8),
+                line=dict(color='#222222', width=1.0),
                 showlegend=False, hoverinfo='skip'
             ))
-
-    # ── LOCATION PIN MARKERS (circle + triangle-down to simulate pin) ──
-    # Outer shadow (dark circle behind)
-    map_fig.add_trace(go.Scatter(
-        x=hotspots['lon'],
-        y=hotspots['lat'],
-        mode='markers',
-        marker=dict(
-            symbol='circle',
-            size=30,
-            color='#1a1a2e',
-            line=dict(width=0)
-        ),
-        showlegend=False,
-        hoverinfo='skip',
-        name='pin_shadow'
-    ))
-
-    # Inner colored pin (based on pollution level)
-    pin_colors = []
-    for _, row in hotspots.iterrows():
-        avg = row['avg_aqi']
-        if avg > 280:
-            pin_colors.append('#5e0035')   # dark purple
-        elif avg > 220:
-            pin_colors.append('#9e0142')   # magenta
-        elif avg > 160:
-            pin_colors.append('#fd8d3c')   # orange
-        elif avg > 100:
-            pin_colors.append('#fecc5c')   # amber
-        else:
-            pin_colors.append('#31a354')   # green
-
-    # Build rich hover text for each hotspot
-    hover_texts = []
-    for _, row in hotspots.iterrows():
-        avg = row['avg_aqi']
-        if avg > 280:
-            cat = "🟣 Hazardous"
-        elif avg > 220:
-            cat = "🔴 Very Unhealthy"
-        elif avg > 160:
-            cat = "🟠 Unhealthy"
-        elif avg > 100:
-            cat = "🟡 Moderate"
-        else:
-            cat = "🟢 Good"
-
-        hover_texts.append(
-            f"<b>📍 {row['region_name']}</b><br>"
-            f"━━━━━━━━━━━━━━━━━<br>"
-            f"📊 Avg SPI : <b>{row['avg_aqi']:.0f}</b><br>"
-            f"⚠️ Max SPI : <b>{row['max_aqi']:.0f}</b><br>"
-            f"🗂️ Data Points : {int(row['point_count'])}<br>"
-            f"🏷️ Category : {cat}<br>"
-            f"<i>Click to see detailed charts ↓</i>"
-        )
-
-    map_fig.add_trace(go.Scatter(
-        x=hotspots['lon'],
-        y=hotspots['lat'],
-        mode='markers+text',
-        marker=dict(
-            symbol='circle',
-            size=22,
-            color=pin_colors,
-            line=dict(width=2.5, color='white'),
-        ),
-        text=[str(i + 1) for i in range(len(hotspots))],
-        textposition='middle center',
-        textfont=dict(size=10, color='white', family='Arial Black'),
-        customdata=hotspots['region_name'],
-        hovertext=hover_texts,
-        hoverinfo='text',
-        hoverlabel=dict(
-            bgcolor='#1a1a2e',
-            bordercolor='#444',
-            font=dict(color='white', size=12),
-            align='left'
-        ),
-        name='hotspots',
-        showlegend=False
-    ))
 
     map_fig.update_xaxes(range=[67.5, 97.5], visible=False)
     map_fig.update_yaxes(range=[7.5, 37.5], scaleanchor='x', scaleratio=1, visible=False)
