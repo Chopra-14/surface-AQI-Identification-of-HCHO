@@ -230,14 +230,34 @@ if len(filtered) >= 5:
                 showlegend=False, hoverinfo='skip'
             ))
 
-    # Clickable hotspot pins - this is the real click target
+    # Real map-pin shapes (verified teardrop SVG path), drawn as native shapes
+    def pin_svg_path(cx, cy, w=0.9, h=1.3):
+        return (
+            f"M {cx},{cy} "
+            f"C {cx-0.45*w},{cy+0.55*h} {cx-0.5*w},{cy+0.95*h} {cx-0.5*w},{cy+1.05*h} "
+            f"C {cx-0.5*w},{cy+1.45*h} {cx-0.27*w},{cy+1.65*h} {cx},{cy+1.65*h} "
+            f"C {cx+0.27*w},{cy+1.65*h} {cx+0.5*w},{cy+1.45*h} {cx+0.5*w},{cy+1.05*h} "
+            f"C {cx+0.5*w},{cy+0.95*h} {cx+0.45*w},{cy+0.55*h} {cx},{cy} Z"
+        )
+
+    pin_shapes = [
+        dict(
+            type='path',
+            path=pin_svg_path(row['lon'], row['lat']),
+            fillcolor='#1a1a2e',
+            line=dict(color='white', width=1.8),
+            xref='x', yref='y'
+        )
+        for _, row in hotspots.iterrows()
+    ]
+    map_fig.update_layout(shapes=pin_shapes)
+
+    # Invisible scatter trace at each pin's tip location - this is the real hover/click target,
+    # since drawn shapes alone don't support hover or click events in Plotly
     map_fig.add_trace(go.Scatter(
-        x=hotspots['lon'], y=hotspots['lat'],
-        mode='markers+text',
-        marker=dict(size=34, color='#1a1a2e', symbol='circle', line=dict(width=2.5, color='white')),
-        text=['📍'] * len(hotspots),
-        textfont=dict(size=18),
-        textposition='middle center',
+        x=hotspots['lon'], y=hotspots['lat'] + 0.7,  # offset to sit over the pin's circular head
+        mode='markers',
+        marker=dict(size=28, color='rgba(0,0,0,0)'),
         customdata=hotspots[['region_name', 'avg_aqi', 'max_aqi', 'point_count']].values,
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
