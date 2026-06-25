@@ -253,13 +253,18 @@ if len(filtered) >= 5:
         plot_bgcolor='white', paper_bgcolor='white'
     )
 
-    st.caption("📍 Hover a pin to see its stats. Use the dropdown below to see a detailed breakdown for any hotspot.")
+    st.caption("📍 Hover any pin on the map to see its quick stats.")
     st.plotly_chart(map_fig, use_container_width=True, key="hotspot_map")
 
     # Dropdown-based selection - reliable across all environments, unlike click-to-select
     # on third-party map components which can break depending on the browser/frontend bundle
-    region_options = [f"{row['region_name']} (#{i+1})" for i, row in hotspots.iterrows()]
-    selected_label = st.selectbox("🔍 Select a hotspot for detailed breakdown:", region_options, key="hotspot_selector")
+    st.markdown("""
+    <div style="background:#f0f2f6; border-radius:10px; padding:12px 16px; margin-top:-8px; margin-bottom:4px;">
+    <b>👇 Want the full breakdown for a hotspot?</b> Pick it below — same pins shown on the map above.
+    </div>
+    """, unsafe_allow_html=True)
+    region_options = [f"📍 {row['region_name']} (#{i+1})" for i, row in hotspots.iterrows()]
+    selected_label = st.selectbox("Select a hotspot:", region_options, key="hotspot_selector", label_visibility="collapsed")
     st.session_state.selected_hotspot_idx = region_options.index(selected_label)
 
     selected_region = hotspots.iloc[st.session_state.selected_hotspot_idx]['region_name']
