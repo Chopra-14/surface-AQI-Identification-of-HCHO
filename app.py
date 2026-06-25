@@ -228,33 +228,12 @@ if len(filtered) >= 5:
                 showlegend=False, hoverinfo='skip'
             ))
 
-    # Real map-pin shapes (verified teardrop SVG path)
-    def pin_svg_path(cx, cy, w=0.9, h=1.3):
-        return (
-            f"M {cx},{cy} "
-            f"C {cx-0.45*w},{cy+0.55*h} {cx-0.5*w},{cy+0.95*h} {cx-0.5*w},{cy+1.05*h} "
-            f"C {cx-0.5*w},{cy+1.45*h} {cx-0.27*w},{cy+1.65*h} {cx},{cy+1.65*h} "
-            f"C {cx+0.27*w},{cy+1.65*h} {cx+0.5*w},{cy+1.45*h} {cx+0.5*w},{cy+1.05*h} "
-            f"C {cx+0.5*w},{cy+0.95*h} {cx+0.45*w},{cy+0.55*h} {cx},{cy} Z"
-        )
-
-    pin_shapes = [
-        dict(
-            type='path',
-            path=pin_svg_path(row['lon'], row['lat']),
-            fillcolor='#1a1a2e',
-            line=dict(color='white', width=1.8),
-            xref='x', yref='y'
-        )
-        for _, row in hotspots.iterrows()
-    ]
-
-    # Hover-only trace at each pin's head (no click handling needed - st.plotly_chart
-    # natively supports hover tooltips without any extra component)
+    # Hotspot pins using the 📍 emoji, with hover tooltip on the same trace
     map_fig.add_trace(go.Scatter(
-        x=hotspots['lon'], y=hotspots['lat'] + 0.7,
-        mode='markers',
-        marker=dict(size=28, color='rgba(0,0,0,0)'),
+        x=hotspots['lon'], y=hotspots['lat'],
+        mode='text',
+        text=['📍'] * len(hotspots),
+        textfont=dict(size=26),
         customdata=hotspots[['region_name', 'avg_aqi', 'max_aqi', 'point_count']].values,
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
@@ -268,7 +247,6 @@ if len(filtered) >= 5:
     ))
 
     map_fig.update_layout(
-        shapes=pin_shapes,
         xaxis=dict(range=[67.5, 97.5], visible=False),
         yaxis=dict(range=[7.5, 37.5], visible=False, scaleanchor='x', scaleratio=1),
         height=600, margin=dict(l=10, r=10, t=10, b=10),
