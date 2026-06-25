@@ -168,7 +168,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 st.markdown('<p class="section-header">📍 Pollution Heatmap of India</p>', unsafe_allow_html=True)
 st.caption("Satellite Pollution Index (SPI) — continuous surface interpolated from filtered sample points")
 
-if len(filtered) > 0:
+if len(filtered) >= 5:
     from scipy.interpolate import griddata
     from scipy.ndimage import gaussian_filter
     import geopandas as gpd
@@ -331,7 +331,7 @@ if len(filtered) > 0:
     st.plotly_chart(detail_fig, use_container_width=True)
     st.caption("⚠️ The seasonal panel reuses the national illustrative pattern — region-specific monthly data was not collected in this version.")
 else:
-    st.warning("No data points match the selected filters. Try selecting at least one category.")
+    st.warning(f"Only {len(filtered)} point(s) match the selected filter(s) — need at least 5 to build a reliable map surface. Try selecting more categories.")
 
 # ============================================
 # HOTSPOT CARDS
@@ -345,7 +345,7 @@ for idx, row in hotspots.iterrows():
         severity_color = "#7f0000" if row['avg_aqi'] > 220 else "#e31a1c" if row['avg_aqi'] > 150 else "#fdae61"
         st.markdown(f"""
         <div class="hotspot-card" style="border-left-color:{severity_color}">
-            <span class="hotspot-num">{idx+1}</span>
+            <span class="hotspot-num">📍</span>
             <span class="hotspot-title">{row['region_name']}</span>
             <div class="hotspot-stat">Avg SPI: <b>{row['avg_aqi']:.0f}</b> &nbsp;|&nbsp; Max SPI: <b>{row['max_aqi']:.0f}</b></div>
             <div class="hotspot-stat">{int(row['point_count'])} satellite data points</div>
