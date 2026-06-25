@@ -175,7 +175,6 @@ if len(filtered) >= 5:
     import shapely
     from shapely.ops import unary_union
     from plotly.subplots import make_subplots
-    from streamlit_plotly_events import plotly_events
 
     @st.cache_data
     def get_india_geometry():
@@ -202,8 +201,8 @@ if len(filtered) >= 5:
     vmin = np.nanpercentile(gz_masked, 5)
     vmax = np.nanpercentile(gz_masked, 95)
 
-    # Native Plotly contour - no embedded image, so no sizing/anchoring bugs possible
     map_fig = go.Figure()
+
     map_fig.add_trace(go.Contour(
         x=grid_lon, y=grid_lat, z=gz_masked,
         colorscale=[[0, '#1a9850'], [0.1, '#66bd63'], [0.2, '#a6d96a'], [0.3, '#d9ef8b'],
@@ -216,8 +215,7 @@ if len(filtered) >= 5:
         hoverinfo='skip'
     ))
 
-    # State border outlines drawn as native Plotly lines (extracted from the boundary geometry)
-    # Filter out tiny slivers from geometry simplification - keeps mainland + real islands only
+    # State border outlines
     for geom in india_gdf.geometry:
         polys = [geom] if geom.geom_type == 'Polygon' else list(geom.geoms)
         for poly in polys:
@@ -230,7 +228,7 @@ if len(filtered) >= 5:
                 showlegend=False, hoverinfo='skip'
             ))
 
-    # Real map-pin shapes (verified teardrop SVG path), drawn as native shapes
+    # Real map-pin shapes (verified teardrop SVG path)
     def pin_svg_path(cx, cy, w=0.9, h=1.3):
         return (
             f"M {cx},{cy} "
@@ -250,12 +248,11 @@ if len(filtered) >= 5:
         )
         for _, row in hotspots.iterrows()
     ]
-    map_fig.update_layout(shapes=pin_shapes)
 
-    # Invisible scatter trace at each pin's tip location - this is the real hover/click target,
-    # since drawn shapes alone don't support hover or click events in Plotly
+    # Hover-only trace at each pin's head (no click handling needed - st.plotly_chart
+    # natively supports hover tooltips without any extra component)
     map_fig.add_trace(go.Scatter(
-        x=hotspots['lon'], y=hotspots['lat'] + 0.7,  # offset to sit over the pin's circular head
+        x=hotspots['lon'], y=hotspots['lat'] + 0.7,
         mode='markers',
         marker=dict(size=28, color='rgba(0,0,0,0)'),
         customdata=hotspots[['region_name', 'avg_aqi', 'max_aqi', 'point_count']].values,
@@ -270,29 +267,22 @@ if len(filtered) >= 5:
         showlegend=False
     ))
 
-    map_fig.update_xaxes(range=[67.5, 97.5], visible=False)
-    map_fig.update_yaxes(range=[7.5, 37.5], scaleanchor='x', scaleratio=1, visible=False)
     map_fig.update_layout(
+        shapes=pin_shapes,
+        xaxis=dict(range=[67.5, 97.5], visible=False),
+        yaxis=dict(range=[7.5, 37.5], visible=False, scaleanchor='x', scaleratio=1),
         height=600, margin=dict(l=10, r=10, t=10, b=10),
         plot_bgcolor='white', paper_bgcolor='white'
     )
 
-    st.caption("📍 Hover a pin to see its stats. Click any pin to see its detailed breakdown below.")
-    clicked = plotly_events(map_fig, click_event=True, hover_event=False, override_height=600, key="hotspot_map")
+    st.caption("📍 Hover a pin to see its stats. Use the dropdown below to see a detailed breakdown for any hotspot.")
+    st.plotly_chart(map_fig, use_container_width=True, key="hotspot_map")
 
-    # Determine which hotspot was clicked (match by clicked point's curve/trace, default to first if none yet)
-    if 'selected_hotspot_idx' not in st.session_state:
-        st.session_state.selected_hotspot_idx = 0
-
-    if clicked:
-        point = clicked[0]
-        # The hotspot trace is the last one added; match by closest coordinate as a robust fallback
-        clicked_x, clicked_y = point.get('x'), point.get('y')
-        if clicked_x is not None and clicked_y is not None:
-            distances = np.sqrt((hotspots['lon'] - clicked_x) ** 2 + (hotspots['lat'] - clicked_y) ** 2)
-            nearest_idx = distances.idxmin()
-            if distances[nearest_idx] < 1.5:  # only accept clicks reasonably close to an actual pin
-                st.session_state.selected_hotspot_idx = nearest_idx
+    # Dropdown-based selection - reliable across all environments, unlike click-to-select
+    # on third-party map components which can break depending on the browser/frontend bundle
+    region_options = [f"{row['region_name']} (#{i+1})" for i, row in hotspots.iterrows()]
+    selected_label = st.selectbox("🔍 Select a hotspot for detailed breakdown:", region_options, key="hotspot_selector")
+    st.session_state.selected_hotspot_idx = region_options.index(selected_label)
 
     selected_region = hotspots.iloc[st.session_state.selected_hotspot_idx]['region_name']
     sel_row = hotspots.iloc[st.session_state.selected_hotspot_idx]
