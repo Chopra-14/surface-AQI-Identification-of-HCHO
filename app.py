@@ -272,38 +272,45 @@ if len(filtered) >= 5:
     national_avg = df['aqi'].mean()
 
     # ============================================
-    # 4-Panel Detail Charts for the Clicked Hotspot
+    # 4-Panel Detail Charts for the Selected Hotspot
     # ============================================
     st.markdown("<br>", unsafe_allow_html=True)
 
     detail_fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=(
-            "Avg SPI: This Region vs National Average",
-            "This Region: Average vs Peak SPI",
+            "Avg SPI — This Region vs National Average",
+            "This Region — Average vs Peak SPI",
             "Sample Size vs Other Hotspots",
             "National Seasonal Pattern (Illustrative)"
         ),
         specs=[[{"type": "bar"}, {"type": "bar"}], [{"type": "bar"}, {"type": "scatter"}]],
-        vertical_spacing=0.18, horizontal_spacing=0.1
+        vertical_spacing=0.22, horizontal_spacing=0.12
     )
 
     detail_fig.add_trace(go.Bar(
         x=['This Region', 'India Average'], y=[sel_row['avg_aqi'], national_avg],
         marker_color=['#bd0026', '#66bd63'], showlegend=False,
-        text=[f"{sel_row['avg_aqi']:.0f}", f"{national_avg:.0f}"], textposition='outside'
+        text=[f"{sel_row['avg_aqi']:.0f}", f"{national_avg:.0f}"], textposition='outside',
+        textfont=dict(size=13, color='#1a1a2e'),
+        hovertemplate="<b>%{x}</b><br>Avg SPI: %{y:.0f}<extra></extra>"
     ), row=1, col=1)
 
     detail_fig.add_trace(go.Bar(
         x=['Average', 'Peak (Max)'], y=[sel_row['avg_aqi'], sel_row['max_aqi']],
         marker_color=['#fdae61', '#800026'], showlegend=False,
-        text=[f"{sel_row['avg_aqi']:.0f}", f"{sel_row['max_aqi']:.0f}"], textposition='outside'
+        text=[f"{sel_row['avg_aqi']:.0f}", f"{sel_row['max_aqi']:.0f}"], textposition='outside',
+        textfont=dict(size=13, color='#1a1a2e'),
+        hovertemplate="<b>%{x}</b><br>SPI: %{y:.0f}<extra></extra>"
     ), row=1, col=2)
 
     bar_colors = ['#1a1a2e' if r == selected_region else '#cbd5e1' for r in hotspots['region_name']]
     detail_fig.add_trace(go.Bar(
         x=hotspots['region_name'], y=hotspots['point_count'],
-        marker_color=bar_colors, showlegend=False
+        marker_color=bar_colors, showlegend=False,
+        text=hotspots['point_count'], textposition='outside',
+        textfont=dict(size=12, color='#1a1a2e'),
+        hovertemplate="<b>%{x}</b><br>%{y} data points<extra></extra>"
     ), row=2, col=1)
 
     months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -311,16 +318,28 @@ if len(filtered) >= 5:
     monthly_vals = [national_avg * f for f in seasonal_factor]
     detail_fig.add_trace(go.Scatter(
         x=months, y=monthly_vals, mode='lines+markers',
-        line=dict(color='#e8743b', width=2.5), showlegend=False
+        line=dict(color='#e8743b', width=3),
+        marker=dict(size=7, color='#e8743b', line=dict(width=1, color='white')),
+        fill='tozeroy', fillcolor='rgba(232,116,59,0.1)',
+        showlegend=False,
+        hovertemplate="<b>%{x}</b><br>SPI: %{y:.0f}<extra></extra>"
     ), row=2, col=2)
 
     detail_fig.update_layout(
-        height=620,
+        height=640,
         title_text=f"📊 Detailed Breakdown — {selected_region}",
-        title_font_size=18,
+        title_font=dict(size=19, color='#1a1a2e', family='Arial Black'),
         showlegend=False,
-        margin=dict(t=80)
+        margin=dict(t=90, b=30, l=50, r=30),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(color='#444'),
+        hoverlabel=dict(bgcolor='white', font_size=13, bordercolor='#ccc')
     )
+    detail_fig.update_yaxes(gridcolor='#eee', zeroline=False)
+    detail_fig.update_xaxes(showgrid=False)
+    detail_fig.update_annotations(font=dict(size=13, color='#555'))
+
     st.plotly_chart(detail_fig, use_container_width=True)
     st.caption("⚠️ The seasonal panel reuses the national illustrative pattern — region-specific monthly data was not collected in this version.")
 else:
