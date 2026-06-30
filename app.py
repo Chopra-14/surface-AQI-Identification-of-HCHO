@@ -169,102 +169,72 @@ st.markdown('<p class="section-header">📍 Pollution Heatmap of India</p>', uns
 st.caption("Satellite Pollution Index (SPI) — continuous surface interpolated from filtered sample points")
 
 if len(filtered) >= 5:
-    from scipy.interpolate import griddata
-    from scipy.ndimage import gaussian_filter
-    import geopandas as gpd
-    import shapely
-    from shapely.ops import unary_union
+    import folium
+    from folium.plugins import HeatMap
+    from streamlit_folium import st_folium
     from plotly.subplots import make_subplots
 
     @st.cache_data
-    def get_india_geometry():
-        gdf = gpd.read_file('india_boundary_simplified.geojson')
-        return gdf, unary_union(gdf.geometry)
+    def build_folium_map(lat_vals, lon_vals, aqi_vals, hotspots_data):
+        m = folium.Map(
+            location=[22.5, 80], zoom_start=5,
+            tiles='CartoDB positron', min_zoom=4, max_zoom=10
+        )
 
-    india_gdf, india_shape = get_india_geometry()
+        heat_data = list(zip(lat_vals, lon_vals, aqi_vals))
+        HeatMap(
+            heat_data, radius=18, blur=15, max_zoom=8,
+            gradient={'0.2': '#1a9850', '0.4': '#d9ef8b', '0.6': '#fdae61',
+                      '0.8': '#e31a1c', '1.0': '#800026'}
+        ).add_to(m)
 
-    @st.cache_data
-    def build_heatmap_grid(lat_vals, lon_vals, aqi_vals):
-        grid_lon = np.linspace(68, 97, 250)
-        grid_lat = np.linspace(8, 37, 250)
-        gx, gy = np.meshgrid(grid_lon, grid_lat)
-        gz = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='linear')
-        gz = gaussian_filter(np.nan_to_num(gz, nan=np.nanmean(gz)), sigma=2)
-        mask = shapely.contains_xy(india_shape, gx, gy)
-        gz_masked = np.where(mask, gz, np.nan)
-        return grid_lon, grid_lat, gz_masked
+        for _, row in hotspots_data.iterrows():
+            popup_html = f"""
+            <div style="font-family:Arial; width:190px;">
+                <b>📍 {row['region_name']}</b><br>
+                Avg SPI: <b>{row['avg_aqi']:.0f}</b><br>
+                Max SPI: <b>{row['max_aqi']:.0f}</b><br>
+                Data points: {int(row['point_count'])}
+            </div>
+            """
+            folium.Marker(
+                location=[row['lat'], row['lon']],
+                popup=folium.Popup(popup_html, max_width=220),
+                tooltip=f"📍 {row['region_name']} — click for details",
+                icon=folium.Icon(color='darkred', icon='map-pin', prefix='fa')
+            ).add_to(m)
 
-    grid_lon, grid_lat, gz_masked = build_heatmap_grid(
-        filtered['latitude'].values, filtered['longitude'].values, filtered['aqi'].values
+        return m
+
+    folium_map = build_folium_map(
+        filtered['latitude'].values, filtered['longitude'].values,
+        filtered['aqi'].values, hotspots
     )
 
-    vmin = np.nanpercentile(gz_masked, 5)
-    vmax = np.nanpercentile(gz_masked, 95)
+    st.caption("🗺️ Fully interactive — zoom, pan, and click any pin for a popup with its stats.")
+    map_output = st_folium(folium_map, width=None, height=550, returned_objects=["last_object_clicked_tooltip"], key="hotspot_map")
 
-    map_fig = go.Figure()
-
-    map_fig.add_trace(go.Contour(
-        x=grid_lon, y=grid_lat, z=gz_masked,
-        colorscale=[[0, '#1a9850'], [0.1, '#66bd63'], [0.2, '#a6d96a'], [0.3, '#d9ef8b'],
-                    [0.4, '#fee08b'], [0.5, '#fdae61'], [0.6, '#fc4e2a'], [0.75, '#e31a1c'],
-                    [0.85, '#bd0026'], [1.0, '#800026']],
-        contours=dict(coloring='fill', showlines=False),
-        line_smoothing=0.85,
-        colorbar=dict(title='SPI', thickness=15),
-        zmin=vmin, zmax=vmax,
-        hoverinfo='skip'
-    ))
-
-    # State border outlines
-    for geom in india_gdf.geometry:
-        polys = [geom] if geom.geom_type == 'Polygon' else list(geom.geoms)
-        for poly in polys:
-            if poly.area < 0.01:
-                continue
-            x, y = poly.exterior.xy
-            map_fig.add_trace(go.Scatter(
-                x=list(x), y=list(y), mode='lines',
-                line=dict(color='#444444', width=0.7),
-                showlegend=False, hoverinfo='skip'
-            ))
-
-    # Hotspot pins using the 📍 emoji, with hover tooltip on the same trace
-    map_fig.add_trace(go.Scatter(
-        x=hotspots['lon'], y=hotspots['lat'],
-        mode='text',
-        text=['📍'] * len(hotspots),
-        textfont=dict(size=26),
-        customdata=hotspots[['region_name', 'avg_aqi', 'max_aqi', 'point_count']].values,
-        hovertemplate=(
-            "<b>%{customdata[0]}</b><br>"
-            "Avg SPI: %{customdata[1]:.0f}<br>"
-            "Max SPI: %{customdata[2]:.0f}<br>"
-            "Data points: %{customdata[3]:.0f}"
-            "<extra></extra>"
-        ),
-        name='hotspots',
-        showlegend=False
-    ))
-
-    map_fig.update_layout(
-        xaxis=dict(range=[67.5, 97.5], visible=False),
-        yaxis=dict(range=[7.5, 37.5], visible=False, scaleanchor='x', scaleratio=1),
-        height=600, margin=dict(l=10, r=10, t=10, b=10),
-        plot_bgcolor='white', paper_bgcolor='white'
-    )
-
-    st.caption("📍 Hover any pin on the map to see its quick stats.")
-    st.plotly_chart(map_fig, use_container_width=True, key="hotspot_map")
-
-    # Dropdown-based selection - reliable across all environments, unlike click-to-select
-    # on third-party map components which can break depending on the browser/frontend bundle
+    # Dropdown-based selection for the detailed 4-chart breakdown below
     st.markdown("""
-    <div style="background:#f0f2f6; border-radius:10px; padding:12px 16px; margin-top:-8px; margin-bottom:4px;">
+    <div style="background:#f0f2f6; border-radius:10px; padding:12px 16px; margin-top:8px; margin-bottom:4px;">
     <b>👇 Want the full breakdown for a hotspot?</b> Pick it below — same pins shown on the map above.
     </div>
     """, unsafe_allow_html=True)
     region_options = [f"📍 {row['region_name']} (#{i+1})" for i, row in hotspots.iterrows()]
-    selected_label = st.selectbox("Select a hotspot:", region_options, key="hotspot_selector", label_visibility="collapsed")
+
+    # If the user clicked a pin on the live map, auto-select it in the dropdown too
+    default_idx = st.session_state.get('selected_hotspot_idx', 0)
+    clicked_tooltip = map_output.get("last_object_clicked_tooltip") if map_output else None
+    if clicked_tooltip:
+        for i, row in hotspots.iterrows():
+            if row['region_name'] in clicked_tooltip:
+                default_idx = i
+                break
+
+    selected_label = st.selectbox(
+        "Select a hotspot:", region_options, index=default_idx,
+        key="hotspot_selector", label_visibility="collapsed"
+    )
     st.session_state.selected_hotspot_idx = region_options.index(selected_label)
 
     selected_region = hotspots.iloc[st.session_state.selected_hotspot_idx]['region_name']
