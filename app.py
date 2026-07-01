@@ -173,19 +173,49 @@ if len(filtered) >= 5:
     from folium.plugins import HeatMap
     from streamlit_folium import st_folium
     from plotly.subplots import make_subplots
+    import geopandas as gpd
+    import shapely
+    from shapely.ops import unary_union
+
+    @st.cache_data
+    def get_india_geometry():
+        gdf = gpd.read_file('india_boundary_simplified.geojson')
+        return unary_union(gdf.geometry)
+
+    india_shape = get_india_geometry()
 
     @st.cache_data
     def build_folium_map(lat_vals, lon_vals, aqi_vals, hotspots_data):
+        # Keep only points genuinely inside India's real boundary —
+        # the raw dataset was sampled from a rectangular bounding box,
+        # so it also includes points in Pakistan, China, Nepal, and ocean.
+        # Without this filter, the heatmap visibly bleeds outside India's coastline.
+        inside_mask = shapely.contains_xy(india_shape, lon_vals, lat_vals)
+        lat_in, lon_in, aqi_in = lat_vals[inside_mask], lon_vals[inside_mask], aqi_vals[inside_mask]
+
+        # Normalize AQI into a real 0-1 weight using the actual data's 5th-95th
+        # percentile range. Folium's HeatMap does NOT auto-scale raw values —
+        # passing raw AQI (50-440) makes nearly everything saturate to max intensity,
+        # which is why the map previously showed one solid red blob.
+        vmin, vmax = np.percentile(aqi_in, 5), np.percentile(aqi_in, 95)
+        weights = np.clip((aqi_in - vmin) / (vmax - vmin), 0, 1)
+
         m = folium.Map(
             location=[22.5, 80], zoom_start=5,
             tiles='CartoDB positron', min_zoom=4, max_zoom=10
         )
 
-        heat_data = list(zip(lat_vals, lon_vals, aqi_vals))
+        heat_data = list(zip(lat_in, lon_in, weights))
         HeatMap(
-            heat_data, radius=18, blur=15, max_zoom=8,
-            gradient={'0.2': '#1a9850', '0.4': '#d9ef8b', '0.6': '#fdae61',
-                      '0.8': '#e31a1c', '1.0': '#800026'}
+            heat_data,
+            radius=14,       # smaller radius = far less bleed past coastline
+            blur=10,
+            max_zoom=8,
+            min_opacity=0.35,
+            gradient={
+                '0.0': '#1a9850', '0.25': '#a6d96a', '0.45': '#fee08b',
+                '0.6': '#fdae61', '0.75': '#f46d43', '0.88': '#d73027', '1.0': '#800026'
+            }
         ).add_to(m)
 
         for _, row in hotspots_data.iterrows():
