@@ -224,8 +224,8 @@ if len(filtered) >= 5:
         plt.close(fig)
 
         # Build Folium map with the image overlaid
-        m = folium.Map(location=[22.5, 80], zoom_start=5,
-                       tiles='CartoDB positron', min_zoom=4, max_zoom=10)
+        m = folium.Map(location=[22.5, 82], zoom_start=5,
+                       tiles='CartoDB positron', min_zoom=5, max_zoom=10)
 
         folium.raster_layers.ImageOverlay(
             image=f"data:image/png;base64,{img_b64}",
