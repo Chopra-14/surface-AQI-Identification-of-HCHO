@@ -224,8 +224,30 @@ if len(filtered) >= 5:
         plt.close(fig)
 
         # Build Folium map with the image overlaid
+        # Build Folium map with multiple tile layers, search, and layer control
         m = folium.Map(location=[22.5, 82], zoom_start=5,
-                       tiles='CartoDB positron', min_zoom=5, max_zoom=10)
+                       tiles=None, min_zoom=5, max_zoom=15)
+
+        # Base map layers — user can switch between them
+        folium.TileLayer(
+            tiles='CartoDB positron',
+            name='🗺️ Light Map',
+            attr='© CartoDB'
+        ).add_to(m)
+
+        folium.TileLayer(
+            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attr='Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+            name='🛰️ Satellite View',
+            overlay=False,
+            control=True
+        ).add_to(m)
+
+        folium.TileLayer(
+            tiles='OpenStreetMap',
+            name='🏙️ Street Map',
+            attr='© OpenStreetMap contributors'
+        ).add_to(m)
 
         folium.raster_layers.ImageOverlay(
             image=f"data:image/png;base64,{img_b64}",
@@ -251,6 +273,42 @@ if len(filtered) >= 5:
                 tooltip=f"📍 {row['region_name']} — click for details",
                 icon=folium.Icon(color='darkred', icon='map-pin', prefix='fa')
             ).add_to(m)
+
+        # Layer control — lets user switch between Light/Satellite/Street view
+        folium.LayerControl(position='topright', collapsed=False).add_to(m)
+
+        # Fullscreen button
+        from folium.plugins import Fullscreen, Search
+        Fullscreen(position='topleft', title='Fullscreen', title_cancel='Exit').add_to(m)
+
+        # Build a searchable GeoJSON layer from hotspot locations
+        import json
+        hotspot_geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [row['lon'], row['lat']]},
+                    "properties": {"name": row['region_name'], "avg_spi": int(row['avg_aqi'])}
+                }
+                for _, row in hotspots_data.iterrows()
+            ]
+        }
+        hotspot_search_layer = folium.GeoJson(
+            hotspot_geojson,
+            name='Hotspot Search',
+            marker=folium.CircleMarker(radius=0, color='transparent', fill=False),
+            show=False
+        ).add_to(m)
+
+        Search(
+            layer=hotspot_search_layer,
+            geom_type='Point',
+            placeholder='🔍 Search hotspot (e.g. Maharashtra)',
+            collapsed=False,
+            search_label='name',
+            position='topleft'
+        ).add_to(m)
 
         return m
 
