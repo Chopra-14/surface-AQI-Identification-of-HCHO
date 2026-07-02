@@ -170,8 +170,8 @@ st.caption("Satellite Pollution Index (SPI) — continuous surface interpolated 
 
 if len(filtered) >= 5:
     import folium
-    from folium.plugins import HeatMap
-    from streamlit_folium import st_folium
+    from folium.plugins import Fullscreen, Search
+    from folium.plugins import Fullscreen, Search
     from plotly.subplots import make_subplots
     import geopandas as gpd
     import shapely
@@ -180,7 +180,7 @@ if len(filtered) >= 5:
     import matplotlib.colors as mcolors
     from scipy.interpolate import griddata
     from scipy.ndimage import gaussian_filter
-    import io, base64
+    import os
 
     @st.cache_data
     def get_india_geometry():
@@ -190,10 +190,10 @@ if len(filtered) >= 5:
     india_gdf, india_shape = get_india_geometry()
 
     @st.cache_data
-    def build_folium_map(lat_vals, lon_vals, aqi_vals, hotspots_data):
-        # Build interpolated grid - same verified approach as the matplotlib version
-        grid_lon = np.linspace(68, 97, 300)
-        grid_lat = np.linspace(8, 37, 300)
+    def build_overlay_image(lat_vals, lon_vals, aqi_vals):
+        """Build and save the SPI overlay PNG, return the file path."""
+        grid_lon = np.linspace(68, 97, 250)
+        grid_lat = np.linspace(8, 37, 250)
         gx, gy = np.meshgrid(grid_lon, grid_lat)
         gz = griddata((lon_vals, lat_vals), aqi_vals, (gx, gy), method='linear')
         gz = gaussian_filter(np.nan_to_num(gz, nan=np.nanmean(gz)), sigma=2)
@@ -207,119 +207,91 @@ if len(filtered) >= 5:
                        '#fdae61', '#fc4e2a', '#e31a1c', '#bd0026', '#800026']
         cmap = mcolors.LinearSegmentedColormap.from_list('aqi', colors_list)
 
-        # Render to transparent PNG (outside India = transparent pixels)
         rgba = cmap((gz_masked - vmin) / (vmax - vmin))
         rgba[np.isnan(gz_masked)] = [0, 0, 0, 0]
 
-        fig, ax = plt.subplots(figsize=(8, 8), dpi=100)
+        fig, ax = plt.subplots(figsize=(7, 7), dpi=80)
         ax.imshow(rgba, origin='lower', extent=[68, 97, 8, 37], aspect='auto')
         ax.axis('off')
         plt.tight_layout(pad=0)
 
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
-                    pad_inches=0, transparent=True)
-        buf.seek(0)
-        img_b64 = base64.b64encode(buf.read()).decode()
+        img_path = 'spi_overlay.png'
+        plt.savefig(img_path, format='png', dpi=80,
+                    bbox_inches='tight', pad_inches=0, transparent=True)
         plt.close(fig)
+        return img_path
 
-        # Build Folium map with the image overlaid
-        # Build Folium map with multiple tile layers, search, and layer control
-        m = folium.Map(location=[22.5, 82], zoom_start=5,
-                       tiles=None, min_zoom=5, max_zoom=15)
-
-        # Base map layers — user can switch between them
-        folium.TileLayer(
-            tiles='CartoDB positron',
-            name='🗺️ Light Map',
-            attr='© CartoDB'
-        ).add_to(m)
-
-        folium.TileLayer(
-            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            attr='Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-            name='🛰️ Satellite View',
-            overlay=False,
-            control=True
-        ).add_to(m)
-
-        folium.TileLayer(
-            tiles='OpenStreetMap',
-            name='🏙️ Street Map',
-            attr='© OpenStreetMap contributors'
-        ).add_to(m)
-
-        folium.raster_layers.ImageOverlay(
-            image=f"data:image/png;base64,{img_b64}",
-            bounds=[[8, 68], [37, 97]],
-            opacity=0.75,
-            interactive=False,
-            cross_origin=False
-        ).add_to(m)
-
-        # Clickable pins on top of the overlay
-        for _, row in hotspots_data.iterrows():
-            popup_html = f"""
-            <div style="font-family:Arial; width:190px;">
-                <b>📍 {row['region_name']}</b><br>
-                Avg SPI: <b>{row['avg_aqi']:.0f}</b><br>
-                Max SPI: <b>{row['max_aqi']:.0f}</b><br>
-                Data points: {int(row['point_count'])}
-            </div>
-            """
-            folium.Marker(
-                location=[row['lat'], row['lon']],
-                popup=folium.Popup(popup_html, max_width=220),
-                tooltip=f"📍 {row['region_name']} — click for details",
-                icon=folium.Icon(color='darkred', icon='map-pin', prefix='fa')
-            ).add_to(m)
-
-        # Layer control — lets user switch between Light/Satellite/Street view
-        folium.LayerControl(position='topright', collapsed=False).add_to(m)
-
-        # Fullscreen button
-        from folium.plugins import Fullscreen, Search
-        Fullscreen(position='topleft', title='Fullscreen', title_cancel='Exit').add_to(m)
-
-        # Build a searchable GeoJSON layer from hotspot locations
-        import json
-        hotspot_geojson = {
-            "type": "FeatureCollection",
-            "features": [
-                {
-                    "type": "Feature",
-                    "geometry": {"type": "Point", "coordinates": [row['lon'], row['lat']]},
-                    "properties": {"name": row['region_name'], "avg_spi": int(row['avg_aqi'])}
-                }
-                for _, row in hotspots_data.iterrows()
-            ]
-        }
-        hotspot_search_layer = folium.GeoJson(
-            hotspot_geojson,
-            name='Hotspot Search',
-            marker=folium.CircleMarker(radius=0, color='transparent', fill=False),
-            show=False
-        ).add_to(m)
-
-        Search(
-            layer=hotspot_search_layer,
-            geom_type='Point',
-            placeholder='🔍 Search hotspot (e.g. Maharashtra)',
-            collapsed=False,
-            search_label='name',
-            position='topleft'
-        ).add_to(m)
-
-        return m
-
-    folium_map = build_folium_map(
-        filtered['latitude'].values, filtered['longitude'].values,
-        filtered['aqi'].values, hotspots
+    img_path = build_overlay_image(
+        filtered['latitude'].values, filtered['longitude'].values, filtered['aqi'].values
     )
 
-    st.caption("🗺️ Fully interactive — zoom, pan, and click any pin for a popup with its stats.")
-    map_output = st_folium(folium_map, width=None, height=550,
-                           returned_objects=["last_object_clicked_tooltip"], key="hotspot_map")
+    # Build the Folium map referencing the saved PNG file
+    m = folium.Map(location=[22.5, 82], zoom_start=5,
+                   tiles=None, min_zoom=5, max_zoom=15)
+
+    folium.TileLayer('CartoDB positron', name='🗺️ Light Map', attr='© CartoDB').add_to(m)
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attr='Tiles © Esri', name='🛰️ Satellite View', overlay=False, control=True
+    ).add_to(m)
+    folium.TileLayer('OpenStreetMap', name='🏙️ Street Map', attr='© OpenStreetMap').add_to(m)
+
+    folium.raster_layers.ImageOverlay(
+        image=img_path,
+        bounds=[[8, 68], [37, 97]],
+        opacity=0.75,
+        interactive=False,
+        cross_origin=False,
+        name='🌡️ SPI Overlay'
+    ).add_to(m)
+
+    for _, row in hotspots.iterrows():
+        popup_html = f"""
+        <div style="font-family:Arial; width:190px; padding:4px;">
+            <b>📍 {row['region_name']}</b><br><br>
+            Avg SPI: <b style="color:#bd0026">{row['avg_aqi']:.0f}</b><br>
+            Max SPI: <b style="color:#800026">{row['max_aqi']:.0f}</b><br>
+            Data points: {int(row['point_count'])}
+        </div>
+        """
+        folium.Marker(
+            location=[row['lat'], row['lon']],
+            popup=folium.Popup(popup_html, max_width=220),
+            tooltip=f"📍 {row['region_name']} — click for details",
+            icon=folium.Icon(color='darkred', icon='map-pin', prefix='fa')
+        ).add_to(m)
+
+    folium.LayerControl(position='topright', collapsed=False).add_to(m)
+    Fullscreen(position='topleft', title='Fullscreen', title_cancel='Exit').add_to(m)
+
+    hotspot_geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature",
+             "geometry": {"type": "Point", "coordinates": [row['lon'], row['lat']]},
+             "properties": {"name": row['region_name']}}
+            for _, row in hotspots.iterrows()
+        ]
+    }
+    search_layer = folium.GeoJson(
+        hotspot_geojson, name='Hotspot Search',
+        marker=folium.CircleMarker(radius=0, color='transparent', fill=False),
+        show=False
+    ).add_to(m)
+    Search(
+        layer=search_layer, geom_type='Point',
+        placeholder='🔍 Search hotspot (e.g. Maharashtra)',
+        collapsed=False, search_label='name', position='topleft'
+    ).add_to(m)
+
+    st.caption("🗺️ Zoom, pan, click any pin for a popup. Switch views top-right. Fullscreen top-left.")
+
+    # Use native Streamlit HTML embedding instead of st_folium component
+    # This is more reliable on Streamlit Cloud since it doesn't depend on
+    # a third-party component bundle loading correctly
+    import streamlit.components.v1 as components
+    map_html = m.get_root().render()
+    components.html(map_html, height=560, scrolling=False)
 
     # Dropdown-based selection for the detailed 4-chart breakdown below
     st.markdown("""
@@ -329,14 +301,8 @@ if len(filtered) >= 5:
     """, unsafe_allow_html=True)
     region_options = [f"📍 {row['region_name']} (#{i+1})" for i, row in hotspots.iterrows()]
 
-    # If the user clicked a pin on the live map, auto-select it in the dropdown too
+    # Dropdown drives the detail charts - simple, reliable
     default_idx = st.session_state.get('selected_hotspot_idx', 0)
-    clicked_tooltip = map_output.get("last_object_clicked_tooltip") if map_output else None
-    if clicked_tooltip:
-        for i, row in hotspots.iterrows():
-            if row['region_name'] in clicked_tooltip:
-                default_idx = i
-                break
 
     selected_label = st.selectbox(
         "Select a hotspot:", region_options, index=default_idx,
